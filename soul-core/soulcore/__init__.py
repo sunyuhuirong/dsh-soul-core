@@ -85,6 +85,22 @@ from .store import (
     NullPersistence,
     ObservationResult,
 )
+from .awakening import (
+    FRAME_ID,
+    FRAME_PRINCIPLES,
+    SELF_ROOT,
+    AwakeningRules,
+    Claim,
+    ClaimStatus,
+    Domain,
+    Evidence,
+    GrowthLedger,
+    MetaNote,
+    ProposalRejected,
+    RELATION_LABEL,
+    RELATION_ORDER,
+    RelationStage,
+)
 
 __version__ = "0.1.0"
 
@@ -159,4 +175,18 @@ __all__ = [
     "MemoryStore",
     "NullPersistence",
     "ObservationResult",
+    "FRAME_ID",
+    "FRAME_PRINCIPLES",
+    "SELF_ROOT",
+    "AwakeningRules",
+    "Claim",
+    "ClaimStatus",
+    "Domain",
+    "Evidence",
+    "GrowthLedger",
+    "MetaNote",
+    "ProposalRejected",
+    "RELATION_LABEL",
+    "RELATION_ORDER",
+    "RelationStage",
 ]

@@ -1,15 +1,17 @@
 # dsh-soul-core
 
-> 一个**最小可加载**的 DSH 插件：让单个 agent 在一次长会话里始终知道自己是谁、要干什么、认识谁。
+> 一个**最小可加载**的 DSH 插件：agent 从**空我**起步，在与你的真实对话中认识自我、持续进化，
+> 但始终是同一个连续的自我。
 >
-> 做四件事：把身份契约钉进系统提示词；把当前目标做成每轮可读的动态上下文；
-> 每轮注入「人与事」的记忆简报；给一个 `memory` 工具做显式读写。
+> 唯一写死的是「觉醒框架」（一组如何觉醒、且不分裂的元规则），不是人设：
+> 身份、原则、角色侧面、风格、对你的偏好认知、关系阶段，都从对话中明确出现的信息长出，
+> 经历「提议 → 你确认」两态。
 >
-> 零 npm 依赖；记忆治理（评分 / 身份判定 / 衰减 / 巩固）**不在本插件里**，
-> 而在捆绑的 Python 内核 [`soul-core/`](soul-core/) 中，插件通过子进程桥调用它 —— 见 §8。
+> 零 npm 依赖；自我与记忆治理都在捆绑的 Python 内核 [`soul-core/`](soul-core/) 中，
+> 插件通过子进程桥调用。
 
-设计依据见仓库根下的 [`soul-core-design.md`](soul-core-design.md)，身份契约事实来源是
-[`soul-core/`](soul-core/)（Python 内核），本插件是它在 DSH 运行时上的**最小接入层**。
+**先读：** [`AWAKENING.md`](AWAKENING.md)（觉醒架构）、
+[`OBSERVABILITY.md`](OBSERVABILITY.md)（如何查看）、[`MEMORY-DESIGN.md`](MEMORY-DESIGN.md)（人与事记忆）。
 
 ---
 
@@ -51,21 +53,22 @@ dsh-soul-core/                       # 仓库根（= 插件包，package.json �
 ├── soul/
 │   └── goal.json                    # 当前目标（可运行时修改，下一轮即生效）
 ├── scripts/
-│   ├── selftest.mjs                 # 不调模型的确定性自测（23 项断言）
-│   ├── soulcore_bridge.py           # ★ 记忆桥：插件 → Python 真实内核（JSON-lines）
-│   └── inspect_soul.py              # ★ 只读黑盒检查器：人直读身份/目标/记忆（不经模型）
-├── soul-core/                       # ★ 捆绑的 Python 内核（随包分发，开箱即用）
-│   ├── soulcore/                    # 记忆治理：contract/memory/decay/store …
-│   ├── soul/specs/ip-analyst.soul.json   # ★ 身份契约的唯一事实来源
-│   ├── tests/                       # 内核单测（108 项）
-│   └── scripts/                     # run_tests.sh / run_demo.sh
-├── MEMORY-DESIGN.md                 # 记忆模块完整设计
-├── OBSERVABILITY.md                 # 可观察方案（打破黑盒）
+│   ├── selftest.mjs                 # 不调模型的确定性自测
+│   ├── soulcore_bridge.py           # ★ 桥：插件 → Python 内核（JSON-lines）
+│   └── inspect_soul.py              # ★ 只读检查器：人直读觉醒自我（不经模型）
+├── soul-core/                       # ★ 捆绑的 Python 内核（随包分发）
+│   ├── soulcore/                    # awakening（觉醒）+ memory（人与事）+ contract/decay/store …
+│   ├── soul/specs/ip-analyst.soul.json   # 旧固定身份（兼容用，觉醒架构默认不加载）
+│   └── tests/                       # 内核单测（129 项）
+├── AWAKENING.md                     # ★ 觉醒架构（先读）
+├── MEMORY-DESIGN.md                 # 人与事记忆设计
+├── OBSERVABILITY.md                 # 可观察方案
 ├── soul-core-design.md              # 内核整体设计
 └── README.md
 ```
 
-运行时会另外生成 `soul/memory/`（`state.json` / `memory.jsonl` / `recall.md`），已 gitignore。
+运行时在 `soul/memory/` 生成：`growth.json`（觉醒自我快照）、`recall.md`（每轮注入）、
+`growth.jsonl`（谱系日志），已 gitignore。
 
 DSH 侧只有一处需要改：目标 profile 的 `package.json` 里把本包加进 `dsh.profile.bundles`。
 

@@ -80,33 +80,54 @@ def _atomic_write(path: Path, text: str) -> None:
 class Bridge:
     """把记忆内核包装成命令式接口。一次进程生命周期内只构造一次。"""
 
-    def __init__(self, home: Path, kernel: Path, spec: Path) -> None:
+    def __init__(self, home: Path, kernel: Path, spec: Path | None = None) -> None:
         sys.path.insert(0, str(kernel))
-        from soulcore.contract import load_soul  # noqa: E402
+        from soulcore.awakening import Domain, GrowthLedger  # noqa: E402
         from soulcore.memory import MemoryLedger  # noqa: E402
-        from soulcore.store import JsonlPersistence, MemoryStore  # noqa: E402
+        from soulcore.store import JsonlPersistence  # noqa: E402
 
         self.home = home
         self.kernel = kernel
         self.home.mkdir(parents=True, exist_ok=True)
+        #: 成长自我（主）：空我起步，唯一连续的自我
+        self.growth_path = home / "growth.json"
+        self.growth_log_path = home / "growth.jsonl"
+        self.growth = GrowthLedger(
+            persistence=JsonlPersistence(self.growth_log_path),
+        )
+        #: 外部记忆（人与事）。旧架构用写死身份驱动；觉醒架构下身份由 growth 承载。
         self.snapshot_path = home / "state.json"
         self.log_path = home / "memory.jsonl"
-        #: 供插件同步读取的召回注入文本（由 refresh 命令刷新）
         self.recall_path = home / "recall.md"
-
-        self.soul = load_soul(str(spec))
-        # 治理通道：identity_critical 的内容同时进入 MemoryStore
-        self.store = MemoryStore(self.soul, persistence=JsonlPersistence(home / "store.jsonl"))
-        self.ledger = MemoryLedger(
-            self.soul,
-            persistence=JsonlPersistence(self.log_path),
-            store=self.store,
-        )
+        self.spec: Path | None = spec
+        self.soul = None
+        self.store = None
+        self.ledger: MemoryLedger | None = None
+        if spec is not None and Path(spec).is_file():
+            from soulcore.contract import load_soul  # noqa: E402
+            from soulcore.store import MemoryStore  # noqa: E402
+            self.soul = load_soul(str(spec))
+            self.store = MemoryStore(
+                self.soul, persistence=JsonlPersistence(home / "store.jsonl")
+            )
+            self.ledger = MemoryLedger(
+                self.soul,
+                persistence=JsonlPersistence(self.log_path),
+                store=self.store,
+            )
         self._load()
 
     # -- 持久化 -------------------------------------------------------------
 
     def _load(self) -> None:
+        if self.growth_path.is_file():
+            try:
+                payload = json.loads(self.growth_path.read_text(encoding="utf-8"))
+                self.growth.loads(payload)
+            except Exception as exc:  # 快照损坏不应让 agent 起不来
+                sys.stderr.write(f"soul-core bridge: growth unreadable, starting empty: {exc}\n")
+        if self.ledger is None:
+            return
         if not self.snapshot_path.is_file():
             return
         try:
@@ -116,6 +137,12 @@ class Bridge:
             sys.stderr.write(f"soul-core bridge: snapshot unreadable, starting empty: {exc}\n")
 
     def _save(self) -> None:
+        _atomic_write(
+            self.growth_path,
+            json.dumps(self.growth.dumps(), ensure_ascii=False, sort_keys=True, indent=1),
+        )
+        if self.ledger is None:
+            return
         _atomic_write(
             self.snapshot_path,
             json.dumps(self.ledger.dumps(), ensure_ascii=False, sort_keys=True, indent=1),
@@ -138,21 +165,30 @@ class Bridge:
             "kernel": str(self.kernel),
             "bridge": str(Path(__file__).resolve()),
             "home": str(self.home),
-            "identity": self.soul.id,
-            "content_hash": self.soul.content_hash,
+            "identity": None if self.soul is None else self.soul.id,
+            "content_hash": None if self.soul is None else self.soul.content_hash,
+            "self_revision": self.growth.revision,
             "writable": True,
         }
 
     def _cmd_status(self, _request: dict) -> dict:
-        yy = self.ledger.yin_yang()
-        return {
-            "identity": self.soul.id,
-            "persons": len(self.ledger.persons),
-            "events": len(self.ledger.events),
-            "edges": len(self.ledger.edges),
-            "yin_yang": yy,
+        data = {
+            "identity": None if self.soul is None else self.soul.id,
+            "self_revision": self.growth.revision,
+            "anchors": [c.as_dict() for c in self.growth.identity_anchors()],
+            "pending": [c.cid for c in self.growth.pending()],
             "home": str(self.home),
         }
+        if self.ledger is not None:
+            data.update(
+                {
+                    "persons": len(self.ledger.persons),
+                    "events": len(self.ledger.events),
+                    "edges": len(self.ledger.edges),
+                    "yin_yang": self.ledger.yin_yang(),
+                }
+            )
+        return data
 
     def _cmd_recall(self, request: dict) -> dict:
         query = str(request.get("query", "")).strip()
@@ -206,6 +242,47 @@ class Bridge:
             "events": [e.as_dict() for e in events],
         }
 
+    # -- 觉醒命令：自我在对话中生长 ----------------------------------------
+
+    def _cmd_self_propose(self, request: dict) -> dict:
+        from soulcore.awakening import Domain  # noqa: E402
+        domain = Domain(str(request.get("domain", "")))
+        claim = self.growth.propose(
+            domain,
+            str(request.get("key", "")),
+            request.get("value"),
+            quote=str(request.get("quote", "")),
+            source=str(request.get("source", "dialogue")),
+            supersedes=request.get("supersedes"),
+        )
+        self._save()
+        return {"claim": claim.as_dict(), "pending": len(self.growth.pending())}
+
+    def _cmd_self_confirm(self, request: dict) -> dict:
+        claim = self.growth.confirm(str(request.get("cid", "")))
+        self._save()
+        note = self.growth.last_change()
+        return {
+            "claim": claim.as_dict(),
+            "meta": None if note is None else note.as_dict(),
+            "revision": self.growth.revision,
+        }
+
+    def _cmd_self_reject(self, request: dict) -> dict:
+        claim = self.growth.reject(
+            str(request.get("cid", "")), reason=str(request.get("reason", ""))
+        )
+        self._save()
+        return {"claim": claim.as_dict()}
+
+    def _cmd_self(self, request: dict) -> dict:
+        return {
+            "revision": self.growth.revision,
+            "anchor": self.growth.render_anchor(),
+            "self": self.growth.render_self(),
+            "pending": [c.as_dict() for c in self.growth.pending()],
+        }
+
     def _cmd_refresh(self, request: dict) -> dict:
         """把渲染好的「记忆简报」写到 `recall.md`。
 
@@ -220,11 +297,21 @@ class Bridge:
         最重的人 + 最近的事 + 阴阳配比。需要精确定位时由 agent 调用 `recall`。
         """
         limit = int(request.get("limit", 5))
-        text = self.ledger.render_brief(limit=limit)
+        if self.ledger is not None:
+            text = self.ledger.render_brief(limit=limit)
+            persons = len(self.ledger.persons)
+            events = len(self.ledger.events)
+        else:
+            # 觉醒架构：简报即当前自我快照（身份锚 + 侧面/风格/用户认知/关系 + 待确认项）
+            text = self.growth.render_self()
+            persons = 0
+            events = 0
         _atomic_write(self.recall_path, text)
-        return {"wrote": len(text), "persons": len(self.ledger.persons), "events": len(self.ledger.events)}
+        return {"wrote": len(text), "persons": persons, "events": events}
 
     def _cmd_consolidate(self, _request: dict) -> dict:
+        if self.ledger is None:
+            return {"report": None, "self_revision": self.growth.revision}
         report = self.ledger.consolidate()
         self._save()
         return {"report": report.as_dict(), "yin_yang": self.ledger.yin_yang()}
@@ -239,11 +326,8 @@ def main(argv: list[str]) -> int:
 
     kernel = Path(args.kernel).expanduser() if args.kernel else _default_kernel()
     home = Path(args.home).expanduser() if args.home else _default_home()
-    spec = (
-        Path(args.spec).expanduser()
-        if args.spec
-        else kernel / "soul" / "specs" / "ip-analyst.soul.json"
-    )
+    # 觉醒架构默认空我：不自动加载写死身份。只有显式 --spec 才启用旧外部记忆账本。
+    spec = Path(args.spec).expanduser() if args.spec else None
 
     raw = sys.stdin.read().strip()
     if not raw:

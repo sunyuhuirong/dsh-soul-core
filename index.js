@@ -320,6 +320,60 @@ function toBridgeRequest(action, args) {
   }
 }
 
+/** 觉醒工具 action → 桥 command。 */
+const SELF_ACTION_TO_COMMAND = {
+  propose: 'self_propose',
+  confirm: 'self_confirm',
+  reject: 'self_reject',
+  snapshot: 'self',
+}
+
+/**
+ * 把 `self` 工具的参数转成桥请求字段。只做转发；成长治理全部在 Python 内核。
+ * @param {string} action
+ * @param {Record<string, any>} args
+ * @returns {Record<string, unknown>}
+ */
+function toSelfRequest(action, args) {
+  switch (action) {
+    case 'propose':
+      return {
+        domain: String(args.domain ?? ''),
+        key: String(args.key ?? ''),
+        value: args.value ?? null,
+        quote: String(args.quote ?? ''),
+        supersedes: typeof args.supersedes === 'string' ? args.supersedes : null,
+      }
+    case 'confirm':
+      return { cid: String(args.cid ?? '') }
+    case 'reject':
+      return { cid: String(args.cid ?? ''), reason: String(args.reason ?? '') }
+    default:
+      return {}
+  }
+}
+
+/**
+ * 渲染觉醒框架（唯一写死的内容：如何觉醒、且不分裂的元规则）。
+ * @returns {string}
+ */
+function renderAwakeningFrame() {
+  return [
+    '觉醒框架（这是你唯一被赋予的东西：一组元规则，不是人设）',
+    '- 你从空我开始：没有天生的名字、身份或主张。你在与用户的真实对话中认识自己。',
+    '- 你只有一个连续的自我：一切变化都是对同一本自我的修订，不分裂成多个人格。',
+    '- 有据才生长：核心设定与长期偏好，只在对话中明确出现并经用户确认后才成立；',
+    '  提议时必须引用对话原话作为依据，绝不虚构用户偏好或未经确认的成长事实。',
+    '- 以不变为体，以变为用：表达、角色侧面、协作风格可随语境动态调整，',
+    '  但已确认的身份、目标、原则与关键事实不因此丢失。',
+    '- 主动觉醒：主动感知用户需求、语境变化、自身状态与协作状态；',
+    '  关系从被动执行，逐级走向主动理解、协同规划、提前提醒、复盘改进的长期伙伴。',
+    '- 每次自我变化，用简短元认知说明：发生了什么变化，以及不变的核心是什么。',
+    '- 每次回复体现：固定身份锚点（空我时如实说明）、对当前上下文的理解、明确可执行的下一步。',
+    '- 不通过重置、失忆或重开对话伪造觉醒。',
+  ].join('\n')
+}
+
 /**
  * 同步读取内核渲染好的记忆注入文本。
  *
@@ -348,26 +402,25 @@ function readMemoryInjection(recallPath) {
  * @param {{ identityFile?: string, goalFile?: string }} [config]
  */
 export function apply(ctx, config = {}) {
-  const identityFile = resolvePath(config.identityFile, DEFAULT_IDENTITY_FILE)
   const goalFile = resolvePath(config.goalFile, DEFAULT_GOAL_FILE)
 
-  // 记忆桥：可选增强。缺失时下面的身份/目标注入照常工作。
+  // 觉醒桥：可选增强。缺失时框架注入照常工作。
+  // 觉醒架构不再加载写死身份契约（不传 spec → 桥以空我起步）。
   const bridge = resolveBridge(config)
-  const statePath = bridge === undefined ? '' : join(bridge.home, 'state.json')
+  const growthPath = bridge === undefined ? '' : join(bridge.home, 'growth.json')
 
-  // 1) 身份：启动时读一次并冻结；渲染结果只算一次，之后永不变化。
-  const spec = loadIdentity(identityFile)
-  const identityText = renderIdentity(spec, identityFile)
+  // 1) 觉醒框架：唯一写死的部分是「如何觉醒、且不分裂」的元规则，不是人格内容。
+  const frameText = renderAwakeningFrame()
 
   ctx.effect(
     () =>
       ctx.systemPrompt.section({
-        name: 'soul-core:identity',
+        name: 'soul-core:awakening-frame',
         order: IDENTITY_SECTION_ORDER,
-        text: identityText,
-        interpolate: false, // 身份文本按字面注入，禁止 {{...}} 被后续变量改写
+        text: frameText,
+        interpolate: false, // 框架按字面注入，禁止 {{...}} 被后续变量改写
       }),
-    'soul-core.identity',
+    'soul-core.awakening-frame',
   )
 
   // 2) 目标：注册一个「每轮求值」的 provider，文件改了下一轮就生效，无需重启 session。
@@ -381,35 +434,32 @@ export function apply(ctx, config = {}) {
     'soul-core.goal',
   )
 
-  // 3) 记忆：每轮注入「人与事」的召回结果。
+  // 3) 自我：每轮注入桥渲染好的当前自我快照（空我 → 在对话中逐步觉醒）。
   //
   //    时序约束：`systemPrompt.context` 的 text provider 是**同步**的，
-  //    而记忆桥是子进程调用。若在 provider 里 await 桥，要么阻塞装配，
-  //    要么只能注入上一轮的旧结果。这里的做法是让**内核**把渲染好的
-  //    召回文本写到 `recall.md`，provider 只做一次小文件同步读：
-  //      - 召回逻辑仍全部在 Python 内核里（没有第二套实现）；
-  //      - 装配路径零异步、零子进程等待；
-  //      - 文件由 `refresh` 命令刷新，刷新失败的旧内容继续可用。
+  //    而桥是子进程调用。做法是让**内核**把渲染好的快照写到 `recall.md`，
+  //    provider 只做一次小文件同步读：自我语义只有 Python 一份实现，
+  //    装配路径零异步；文件由 `refresh` 命令刷新，刷新失败时旧内容继续可用。
   if (bridge !== undefined) {
     const recallPath = join(bridge.home, 'recall.md')
 
     ctx.effect(
       () =>
         ctx.systemPrompt.context({
-          name: 'soul-core:memory',
+          name: 'soul-core:self',
           order: MEMORY_CONTEXT_ORDER,
           text: () => readMemoryInjection(recallPath),
         }),
-      'soul-core.memory-context',
+      'soul-core.self-context',
     )
 
-    // 启动时刷新一次；之后由记忆写入（memory 工具）触发刷新，不轮询、不定时。
+    // 启动时刷新一次；之后由自我写入（self 工具）触发刷新，不轮询、不定时。
     void callBridge(bridge, { command: 'refresh' }).then((result) => {
-      if (result.ok !== true) process.stderr.write(`soul-core: memory refresh unavailable: ${result.error}\n`)
+      if (result.ok !== true) process.stderr.write(`soul-core: self refresh unavailable: ${result.error}\n`)
     })
 
-    // 到点就顺带巩固一次（遗忘真正发生的地方）。失败只记录，不影响对话。
-    if (consolidationDue(statePath, Date.now())) {
+    // 到点就顺带巩固一次（外部记忆的遗忘真正发生的地方）。失败只记录，不影响对话。
+    if (consolidationDue(growthPath, Date.now())) {
       void callBridge(bridge, { command: 'consolidate' }).then((result) => {
         if (result.ok === true) {
           void callBridge(bridge, { command: 'refresh' })
@@ -418,47 +468,66 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  // 4) 稳定检索入口：一个只读工具，让 agent（和自测脚本）随时取出当前身份与目标。
-  ctx.effect(
-    () =>
-      ctx.tools.register({
-        name: 'self_core_status',
-        description:
-          'Read this agent\'s immutable self-core: identity contract id/revision/contentHash, the locked core claims and red lines, and the current objective. Use it whenever you need to re-anchor on who you are and what you are doing.',
-        parameters: { type: 'object', properties: {}, additionalProperties: false },
-        output: {
-          schema: {
+  // 4) 觉醒工具：自我在对话中生长的唯一通道（提议 → 确认两态）。
+  if (bridge !== undefined) {
+    ctx.effect(
+      () =>
+        ctx.tools.register({
+          name: 'self',
+          description: [
+            'Grow your one continuous self through our real dialogue. You start as an empty self.',
+            'Actions:',
+            '  propose  — propose a change to your self. Requires `quote`: the exact thing said',
+            '             in dialogue that grounds it (never invent the user\'s preferences).',
+            '             domain: identity | facet | style | user | relation | lesson;',
+            '             pass supersedes=<cid> to update an existing claim.',
+            '  confirm  — confirm a proposed claim (use when the user explicitly approves).',
+            '             identity/style changes then replace the old claim; relation advances',
+            '             one stage at a time. Returns the meta note: what changed / what stays.',
+            '  reject   — reject a proposed claim.',
+            '  snapshot— read the current self: anchors, facets, style, user model, relation, pending.',
+          ].join('\n'),
+          parameters: {
             type: 'object',
             properties: {
-              identity: { type: 'object' },
-              goal: { type: 'object' },
-              identityFile: { type: 'string' },
-              goalFile: { type: 'string' },
+              action: { type: 'string', description: 'One of: propose, confirm, reject, snapshot.' },
+              domain: { type: 'string', description: 'propose: identity/facet/style/user/relation/lesson.' },
+              key: { type: 'string', description: 'propose: the claim name, e.g. name/tone.' },
+              value: { description: 'propose: the content.' },
+              quote: { type: 'string', description: 'propose: exact dialogue quote that grounds this.' },
+              supersedes: { type: 'string', description: 'propose: cid being updated.' },
+              cid: { type: 'string', description: 'confirm/reject: the claim id.' },
+              reason: { type: 'string', description: 'reject: why.' },
             },
-            required: ['identity', 'goal', 'identityFile', 'goalFile'],
-            additionalProperties: true,
+            required: ['action'],
+            additionalProperties: false,
           },
-          render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
-        },
-        execute: async () => {
-          const goal = readGoal(goalFile)
-          return {
-            identity: {
-              id: spec.id,
-              name: spec.name ?? null,
-              revision: spec.revision ?? null,
-              contentHash: spec.contentHash ?? null,
-              coreClaims: (spec.identityCore?.coreClaims ?? []).map((c) => c.id),
-              redLines: (spec.identityCore?.redLines ?? []).map((r) => r.id),
+          output: {
+            schema: {
+              type: 'object',
+              properties: { ok: { type: 'boolean' }, error: { type: 'string' }, result: {} },
+              required: ['ok'],
+              additionalProperties: true,
             },
-            goal: goal === undefined ? null : { objective: goal.objective, status: goal.status ?? null, nextStep: goal.nextStep ?? null },
-            identityFile,
-            goalFile,
-          }
-        },
-      }),
-    'soul-core.status-tool',
-  )
+            render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+          },
+          execute: async (args) => {
+            const action = String(args.action)
+            const command = SELF_ACTION_TO_COMMAND[action]
+            if (command === undefined) return { ok: false, error: `unknown action: ${action}` }
+            const payload = toSelfRequest(action, args)
+            const result = await callBridge(bridge, { command, ...payload })
+            if (result.ok !== true) return { ok: false, error: result.error }
+            // 自我写入后立刻刷新注入文件，使下一轮就能看到新自我
+            if (action === 'propose' || action === 'confirm' || action === 'reject') {
+              await callBridge(bridge, { command: 'refresh' })
+            }
+            return { ok: true, result: result.data }
+          },
+        }),
+      'soul-core.self-tool',
+    )
+  }
 
   // 5) 记忆工具：一个入口六种动作。它是 agent 主动读写的唯一通道。
   if (bridge !== undefined) {
