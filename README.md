@@ -52,13 +52,15 @@ dsh-soul-core/                       # 仓库根（= 插件包，package.json �
 │   └── goal.json                    # 当前目标（可运行时修改，下一轮即生效）
 ├── scripts/
 │   ├── selftest.mjs                 # 不调模型的确定性自测（23 项断言）
-│   └── soulcore_bridge.py           # ★ 记忆桥：插件 → Python 真实内核（JSON-lines）
+│   ├── soulcore_bridge.py           # ★ 记忆桥：插件 → Python 真实内核（JSON-lines）
+│   └── inspect_soul.py              # ★ 只读黑盒检查器：人直读身份/目标/记忆（不经模型）
 ├── soul-core/                       # ★ 捆绑的 Python 内核（随包分发，开箱即用）
 │   ├── soulcore/                    # 记忆治理：contract/memory/decay/store …
 │   ├── soul/specs/ip-analyst.soul.json   # ★ 身份契约的唯一事实来源
 │   ├── tests/                       # 内核单测（108 项）
 │   └── scripts/                     # run_tests.sh / run_demo.sh
 ├── MEMORY-DESIGN.md                 # 记忆模块完整设计
+├── OBSERVABILITY.md                 # 可观察方案（打破黑盒）
 ├── soul-core-design.md              # 内核整体设计
 └── README.md
 ```
@@ -337,7 +339,32 @@ cd soul-core && bash scripts/run_tests.sh
 
 ---
 
-## 9. 明确没做的事
+## 9. 可观察：自己查看 agent 的核心与记忆（打破黑盒）
+
+身份、目标、记忆对用户不再是黑盒。提供一条**只读、不经模型转述、不需凭据**的检查命令，
+直接读盘上一手事实并渲染报告。设计与实测见 [`OBSERVABILITY.md`](OBSERVABILITY.md)。
+
+```bash
+# 在插件安装目录内：直接看（人可读 Markdown）
+python3 scripts/inspect_soul.py
+
+# 给工具/脚本消费
+python3 scripts/inspect_soul.py --json
+
+# 连已归档/淘汰的历史也显示
+python3 scripts/inspect_soul.py --include-archived
+```
+
+报告分五段：① 自我核心（id/contentHash/主张/红线）② 当前目标 ③ 认识的人（按强度）
+④ 记住的事（含参与者引用）⑤ 阴阳账目（kept/shed/tracked + 状态分布）。
+默认隐藏已归档项；全程只读，不改变记忆。
+
+> 与 `self_core_status` / `memory` 工具的区别：那两个是给 **agent** 调用的，用户看到的是
+> agent 的转述；`inspect_soul.py` 绕开模型直接读盘，用户拿到的是未经转述的一手信息。
+
+---
+
+## 10. 明确没做的事
 
 - 没有实现 soul-core 的评分 / 衰减 / 双缓冲巩固 / 驱逐 / 指标 —— 那些是 Python 内核的职责。
 - 没有自动把会话内容写回长期记忆（本期只保证「身份与目标在长会话中不崩坏、不丢失」）。
