@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soulcore"
+version = "0.1.0"
+description = "Identity-governed memory for personal agents: a Soul Core contract decides what to remember and what to forget."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+keywords = ["agent", "memory", "forgetting", "identity", "governance", "soul-core"]
+# 核心零运行时依赖：只用标准库，保证离线可跑、可断言、可回归。
+dependencies = []
+
+[project.optional-dependencies]
+# 生产接入（可选）：语义嵌入 + HTTP 服务
+semantic = ["numpy>=1.24"]
+server = ["fastapi>=0.110", "uvicorn>=0.27"]
+dev = ["pytest>=7.4", "mypy>=1.8"]
+
+[tool.setuptools]
+packages = ["soulcore"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

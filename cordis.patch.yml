@@ -1,0 +1,19 @@
+# dsh-soul-core bundle patch：把 self-core 行挂到 profile 树上。
+#
+# 这是一条普通 Cordis 行：加载器按 `name` 解析本包，调用其 `apply(ctx, config)`。
+#
+# `inject` 必须写在行上：DSH 的加载器会用 unwrapExports() 把模块取成
+# `exports.default` 那个裸函数（见 cordis-plugin-loader 的 Entry._init 与
+# unwrapExports），模块级的 `export const inject` 在这一步会被丢掉。
+# cordis 只在 ctx.plugin() 时读一次 plugin.inject，之后 loader 通过
+# `Inject.resolve(fiber.entry.options.inject, fiber.inject)` 从行配置补齐，
+# 所以行上没有 inject 就会出现 “cannot get property "systemPrompt" without inject”。
+#
+# 注意：cordis 的 service 读取是「必须声明」的 —— ctx.tools 在未声明时直接抛错，
+# 不能写成 `if (ctx.tools !== undefined)` 来探测；两个服务都是本插件的硬依赖。
+- insert:
+    - id: soul-core
+      name: dsh-soul-core
+      inject:
+        - systemPrompt
+        - tools

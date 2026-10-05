@@ -1,0 +1,13 @@
+# 运行时记忆：agent 的真实记忆与状态，不进包
+soul/memory/
+
+# 内核 demo/审计产生的运行时文件（可重跑生成，非源）
+soul-core/soul/audit.jsonl
+
+# 本机自测用的隔离 DSH_HOME 与 pnpm 存储
+soulcore-dsh-home/
+.pnpm-store/
+
+# Python 缓存
+__pycache__/
+*.pyc
