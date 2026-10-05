@@ -1,7 +1,7 @@
 {
-  "objective": "在单次长会话中完成一份可核查的知识产权尽调简报：把已核实事实、待核实推测与未知项分开列示，并对每一项标注证据来源。",
-  "status": "in_progress",
-  "nextStep": "先确认尽调对象与已有证据清单，再逐项补齐来源。",
-  "acceptance": "每个结论都能指向一个可核查来源；无法核实的项明确标为未知，不出现编造的专利号或引文。",
-  "updatedAt": "2026-10-05T21:20:00+08:00"
+  "objective": "",
+  "status": "unset",
+  "nextStep": "",
+  "acceptance": "",
+  "updatedAt": ""
 }

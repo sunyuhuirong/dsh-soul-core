@@ -209,14 +209,19 @@ function resolveBridge(config) {
   // 内核位置：显式 config > 环境变量 > 包内捆绑的 soul-core
   const kernel =
     config.memoryKernel ?? process.env.DSH_SOUL_CORE_KERNEL ?? join(HERE, 'soul-core')
-  const spec = config.memorySpec ?? join(kernel, 'soul', 'specs', 'ip-analyst.soul.json')
-  if (!existsSync(spec)) return undefined
+  // 觉醒架构默认**空我**：不主动加载任何写死身份，因此默认不解析 spec。
+  // 只有显式配置 config.memorySpec 时，才加载外部固定身份（兼容旧用法）。
+  const specPath =
+    typeof config.memorySpec === 'string' && config.memorySpec.trim() !== ''
+      ? resolvePath(config.memorySpec)
+      : undefined
+  if (specPath !== undefined && !existsSync(specPath)) return undefined
   return {
     python,
     bridge,
     kernel,
     home: config.memoryHome ?? process.env.DSH_SOUL_CORE_HOME ?? defaultMemoryHome(),
-    spec,
+    spec: specPath,
   }
 }
 
@@ -231,9 +236,12 @@ function callBridge(bridge, request) {
   return new Promise((done) => {
     let child
     try {
+      // 默认空我：不传 --spec。只有显式配置固定身份时才附加。
+      const bridgeArgs = [bridge.bridge, '--home', bridge.home, '--kernel', bridge.kernel]
+      if (bridge.spec) bridgeArgs.push('--spec', bridge.spec)
       child = execFile(
         bridge.python,
-        [bridge.bridge, '--home', bridge.home, '--kernel', bridge.kernel, '--spec', bridge.spec],
+        bridgeArgs,
         { timeout: BRIDGE_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024 },
         (error, stdout, stderr) => {
           if (error !== null && stdout.trim() === '') {
